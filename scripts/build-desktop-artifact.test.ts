@@ -1387,6 +1387,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
+  it.effect("does not count the prepared server compile cache against the file budget", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
+        const validate = (fileLimit?: number) =>
+          validateWindowsPackagedPayload({
+            stageDistDir: fixture.stageDistDir,
+            appExecutableName: fixture.appExecutableName,
+            targetArch: "x64",
+            appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
+            ...(fileLimit === undefined ? {} : { fileLimit }),
+          });
+        const baseline = yield* validate();
+        const cacheDir = path.join(fixture.packagedAppDir, "resources/server-compile-cache");
+        yield* fs.makeDirectory(cacheDir, { recursive: true });
+        for (const name of ["manifest.json", "02bd59e8", "2064d185"]) {
+          yield* fs.writeFileString(path.join(cacheDir, name), "cache");
+        }
+
+        const result = yield* validate(baseline.fileCount);
+        assert.equal(result.fileCount, baseline.fileCount);
+      }),
+    ).pipe(Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
   it.effect("rejects a sidecar whose extracted server bundle cannot resolve", () =>
     Effect.scoped(
       Effect.gen(function* () {

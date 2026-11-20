@@ -3203,6 +3203,8 @@ function collectUnpackedAsarFiles(
 const countPayloadFiles = Effect.fn("desktopArtifact.countPayloadFiles")(function* (root: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  // Native Windows builds add the prepared server cache; CI cross-builds on Linux and never does.
+  const preparedServerCache = path.join(root, "resources", "server-compile-cache");
   const pendingDirectories = [root];
   let count = 0;
 
@@ -3214,6 +3216,7 @@ const countPayloadFiles = Effect.fn("desktopArtifact.countPayloadFiles")(functio
       const entryPath = path.join(directory, entry);
       const stat = yield* fs.stat(entryPath);
       if (stat.type === "Directory") {
+        if (entryPath === preparedServerCache) continue;
         pendingDirectories.push(entryPath);
       } else if (stat.type === "File") {
         count += 1;
