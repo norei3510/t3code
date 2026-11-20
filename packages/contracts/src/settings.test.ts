@@ -555,3 +555,28 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch(input)).toEqual(input);
   });
 });
+
+describe("delegateRoleTargets", () => {
+  const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
+
+  it("defaults to no role presets", () => {
+    expect(DEFAULT_SERVER_SETTINGS.delegateRoleTargets).toEqual({});
+  });
+
+  it("decodes a role preset as a model selection", () => {
+    const settings = decodeServerSettings({
+      delegateRoleTargets: {
+        review: {
+          instanceId: "dsh-glm",
+          model: "glm-5.3",
+          options: [{ id: "effort", value: "high" }],
+        },
+      },
+    });
+    expect(settings.delegateRoleTargets.review).toEqual({
+      instanceId: "dsh-glm",
+      model: "glm-5.3",
+      options: [{ id: "effort", value: "high" }],
+    });
+  });
+});

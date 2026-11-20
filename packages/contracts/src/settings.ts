@@ -1414,6 +1414,10 @@ export const ServerSettings = Schema.Struct({
   speechPostProcessingModelSelection: Schema.NullOr(ModelSelection).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** Fork: `delegate_task` role -> model, used when the call names no provider or model. */
+  delegateRoleTargets: Schema.Record(Schema.String, ModelSelection).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   projectAgentBrowserAccessOverrides: Schema.Record(ProjectId, Schema.Boolean).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),

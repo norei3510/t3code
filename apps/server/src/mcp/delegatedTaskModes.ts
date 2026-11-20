@@ -4,6 +4,7 @@ import {
   type OrchestratorMcpDelegateTaskInput,
   type OrchestratorMcpInteractionMode,
   type OrchestratorMcpRuntimeMode,
+  type OrchestratorMcpTaskRole,
   type ProviderInteractionMode,
   type RuntimeMode,
 } from "@t3tools/contracts";
@@ -87,9 +88,22 @@ export function resolveInteractionMode(
     : Effect.succeed(resolved);
 }
 
+// implementation_deep differs only in the model a preset picks, so its child does ordinary implementation.
+const ROLE_PROMPT_NAMES = {
+  implementation: "implementation",
+  implementation_deep: "implementation",
+  research: "research",
+  review: "review",
+  design: "design",
+  reasoning: "reasoning",
+  test: "test",
+  bulk: "bulk work",
+  rewrite_ja: "Japanese rewriting",
+} satisfies Record<Exclude<OrchestratorMcpTaskRole, "general">, string>;
+
 /** The task as its child receives it, with the role the caller asked for. */
 export function taskPrompt(input: OrchestratorMcpDelegateTaskInput): string {
   return input.role === undefined || input.role === "general"
     ? input.task
-    : `Act as the ${input.role} sub-agent for this task.\n\n${input.task}`;
+    : `Act as the ${ROLE_PROMPT_NAMES[input.role]} sub-agent for this task.\n\n${input.task}`;
 }

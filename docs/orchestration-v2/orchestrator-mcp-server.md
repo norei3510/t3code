@@ -250,7 +250,10 @@ from the parent when omitted. A driver-only target inherits the parent's provide
 when it can run child tasks, and otherwise selects an available instance of
 that driver; an explicit `providerInstanceId` is honored exactly and fails
 when unavailable. Selecting a different provider without a model uses that
-provider's first advertised model.
+provider's first advertised model. In this fork, a call that names no provider,
+driver, model, or environment but sets a `role` with an entry in the
+`delegateRoleTargets` server setting takes that entry's instance, model, and
+options instead of inheriting.
 
 Set `target.options` using the options returned by `orchestrator_capabilities`, such as
 `{effort: "max"}`. Supplied values override inherited selections; `{}` or `[]` clears them.

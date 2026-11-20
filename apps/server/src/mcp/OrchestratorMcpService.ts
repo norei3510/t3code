@@ -31,6 +31,7 @@ import {
   type OrchestratorMcpScheduleTaskInput,
   type OrchestratorMcpScheduleTaskResult,
   type OrchestratorMcpTarget,
+  type OrchestratorMcpTaskRole,
   type OrchestratorMcpTaskCancelInput,
   type OrchestratorMcpTaskCancelResult,
   type OrchestratorMcpUpdateScheduledTaskInput,
@@ -1614,6 +1615,35 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(threadManagementFailure));
 
+  /** Fork: a role with a preset in `delegateRoleTargets` picks the model when the call names none. */
+  const applyRoleTarget = Effect.fn("OrchestratorMcpService.applyRoleTarget")(function* (
+    role: OrchestratorMcpTaskRole | undefined,
+    target: OrchestratorMcpTarget | undefined,
+  ) {
+    if (role === undefined) return target;
+    if (
+      target?.providerInstanceId !== undefined ||
+      target?.driverKind !== undefined ||
+      target?.model !== undefined ||
+      target?.environmentId !== undefined
+    ) {
+      return target;
+    }
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(() => failure("orchestration_error", "Unable to read server settings.")),
+    );
+    const selection = settings.delegateRoleTargets[role];
+    if (selection === undefined) return target;
+    return {
+      ...target,
+      providerInstanceId: selection.instanceId,
+      model: selection.model,
+      ...(target?.options === undefined && selection.options !== undefined
+        ? { options: selection.options }
+        : {}),
+    } satisfies OrchestratorMcpTarget;
+  });
+
   const resolveTargetRechecking = (
     input: Parameters<typeof resolveTarget>[0] & { readonly cwd: string | undefined },
   ) => {
@@ -2846,7 +2876,7 @@ const make = Effect.gen(function* () {
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
       const target = yield* resolveTargetRechecking({
         parent,
-        target: input.target,
+        target: yield* applyRoleTarget(input.role, input.target),
         providers,
         cwd: yield* parentWorkspaceCwd(parent),
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,

@@ -3138,6 +3138,107 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
   );
 
+  it.effect("a role preset picks the child's model only when the call names no target", () =>
+    Effect.gen(function* () {
+      const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
+      const task = {
+        id: taskId,
+        threadId: parentThreadId,
+        runId: parentRunId,
+        parentNodeId,
+        origin: "app_owned",
+        createdBy: "agent",
+        driver: ProviderDriverKind.make("antigravity"),
+        providerInstanceId: antigravityInstanceId,
+        providerThreadId: null,
+        childThreadId,
+        nativeTaskRef: null,
+        prompt: "Plan the migration.",
+        title: null,
+        model: "gemini-4-neon",
+        status: "running",
+        result: null,
+        startedAt: null,
+        completedAt: null,
+      };
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          hasReceipt: () => Effect.succeed(false),
+          getThreadRecords: (threadId) =>
+            Effect.succeed(
+              threadId === parentThreadId ? parentProjection([task]) : childProjection,
+            ),
+          isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+          assertProviderInstanceEnabled: () => Effect.void,
+          dispatch: (command) =>
+            Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+              Effect.as({
+                sequence: 1,
+                storedEvents: [
+                  {
+                    sequence: 1,
+                    commandId: null,
+                    event: { type: "subagent.updated", payload: task },
+                  },
+                ],
+              } as never),
+            ),
+        }),
+        providerRegistryLayer([
+          providerSnapshot({
+            instanceId: codexInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+            model: "gpt-5.4",
+          }),
+          providerSnapshot({
+            instanceId: antigravityInstanceId,
+            driver: ProviderDriverKind.make("antigravity"),
+            model: "gemini-4-neon",
+          }),
+        ]),
+        adapterRegistryLayer([codexInstanceId, antigravityInstanceId]),
+        Layer.mock(ProjectService.ProjectService)({ getById: () => Effect.succeedNone }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        ServerSettings.layerTest({
+          delegateRoleTargets: {
+            reasoning: { instanceId: antigravityInstanceId, model: "gemini-4-neon" },
+          },
+        }),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        yield* service.delegateTask(scope, {
+          task: "Plan the migration.",
+          role: "reasoning",
+          mode: "async",
+          clientRequestId: "delegate-role-preset-1",
+        });
+        yield* service.delegateTask(scope, {
+          task: "Plan the migration.",
+          role: "reasoning",
+          target: { providerInstanceId: codexInstanceId },
+          mode: "async",
+          clientRequestId: "delegate-role-preset-2",
+        });
+        const commands = (yield* Ref.get(dispatched)) as ReadonlyArray<{
+          readonly modelSelection: { readonly instanceId: string; readonly model: string };
+        }>;
+        assert.deepStrictEqual(
+          commands.map((command) => command.modelSelection),
+          [
+            { instanceId: antigravityInstanceId, model: "gemini-4-neon" },
+            { instanceId: codexInstanceId, model: "gpt-5.4" },
+          ],
+        );
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
   it.effect(
     "retrying an accepted driver-only delegation replays even after the project disables every candidate",
     () =>

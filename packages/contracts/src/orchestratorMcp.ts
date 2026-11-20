@@ -137,12 +137,17 @@ export const OrchestratorMcpInteractionMode = Schema.Union([
 ]);
 export type OrchestratorMcpInteractionMode = typeof OrchestratorMcpInteractionMode.Type;
 
+// Fork: implementation_deep, reasoning, bulk, and rewrite_ja exist so `delegateRoleTargets` can route them.
 export const OrchestratorMcpTaskRole = Schema.Literals([
   "implementation",
+  "implementation_deep",
   "research",
   "review",
   "design",
+  "reasoning",
   "test",
+  "bulk",
+  "rewrite_ja",
   "general",
 ]);
 export type OrchestratorMcpTaskRole = typeof OrchestratorMcpTaskRole.Type;
@@ -175,7 +180,12 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
     Schema.Union([OrchestratorMcpTarget, Schema.fromJsonString(OrchestratorMcpTarget)]),
   ),
   title: Schema.optional(OrchestratorMcpTitle),
-  role: Schema.optional(OrchestratorMcpTaskRole),
+  role: Schema.optional(
+    OrchestratorMcpTaskRole.annotate({
+      description:
+        "implementation_deep: hard or risky coding. design: UI/UX or architecture. reasoning: analysis or planning, no edits. bulk: repetitive chores. rewrite_ja: rewrite Japanese text. Omit `target` to use the user's preset for the role.",
+    }),
+  ),
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:
