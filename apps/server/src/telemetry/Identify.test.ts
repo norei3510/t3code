@@ -71,7 +71,7 @@ const writeHomeFile = Effect.fn("test.writeHomeFile")(function* (
 });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("telemetry identity", (it) => {
-  it.effect("keeps the old distinct_id rule and a fixed install id as logins change", () =>
+  it.effect("uses only the install's anonymous id, whatever provider logins exist", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -84,17 +84,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("telemetry identi
 
       assert.deepEqual(yield* identity(), { distinctId: installId, installId });
 
+      // Fork: provider credential files are never read for telemetry.
       yield* writeHomeFile(homeDirectory, ".claude.json", `{"userID":"claude-machine"}`);
-      assert.deepEqual(yield* identity(), {
-        distinctId: yield* sha256("claude-machine"),
-        installId,
-      });
-
-      yield* writeHomeFile(homeDirectory, ".codex/auth.json", `{"auth_mode":"apikey"}`);
-      assert.equal((yield* identity()).distinctId, yield* sha256("claude-machine"));
-
       yield* writeHomeFile(homeDirectory, ".codex/auth.json", `{"tokens":{"account_id":"ws-1"}}`);
-      assert.deepEqual(yield* identity(), { distinctId: yield* sha256("ws-1"), installId });
+      assert.deepEqual(yield* identity(), { distinctId: installId, installId });
     }).pipe(Effect.provide(layerIdentity("t3-telemetry-identify-install-"))),
   );
 
@@ -161,7 +154,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("telemetry identi
     }).pipe(Effect.provide(layerIdentity("t3-telemetry-identify-read-", logs)));
   });
 
-  it.effect("reads the Connect account and each provider account as owners", () =>
+  it.effect("reports the Connect account but never provider accounts as owners", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
       const secrets = yield* ServerSecretStore.ServerSecretStore;
@@ -192,11 +185,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("telemetry identi
 
       const owners = yield* Identify.getServerOwnersForHome(homeDirectory);
 
-      assert.deepEqual(owners, [
-        { source: "connect", ownerId: yield* sha256("user_connect") },
-        { source: "openai", ownerId: yield* sha256("user-openai-person") },
-        { source: "claude", ownerId: yield* sha256("claude-person") },
-      ]);
+      assert.deepEqual(owners, [{ source: "connect", ownerId: yield* sha256("user_connect") }]);
     }).pipe(Effect.provide(layerIdentity("t3-telemetry-identify-owners-"))),
   );
 
@@ -231,46 +220,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("telemetry identi
         assert.deepEqual(yield* Identify.getServerOwnersForHome(homeDirectory), []);
         assert.deepEqual(logs, []);
       }).pipe(Effect.provide(layerIdentity("t3-telemetry-identify-tokenless-", logs)));
-    },
-  );
-
-  it.effect(
-    "warns about malformed Codex auth without its tokens and keeps the other owners",
-    () => {
-      const logs: CapturedLog[] = [];
-
-      return Effect.gen(function* () {
-        const config = yield* ServerConfig.ServerConfig;
-        const path = yield* Path.Path;
-        const homeDirectory = path.join(config.baseDir, "home");
-        const privateAccessToken = "private-codex-access-token";
-        const codexAuthPath = yield* writeHomeFile(
-          homeDirectory,
-          ".codex/auth.json",
-          `{"tokens":{"access_token":"${privateAccessToken}"}}`,
-        );
-        yield* writeHomeFile(
-          homeDirectory,
-          ".claude.json",
-          `{"oauthAccount":{"accountUuid":"claude-person"}}`,
-        );
-
-        assert.deepEqual(yield* Identify.getServerOwnersForHome(homeDirectory), [
-          { source: "claude", ownerId: yield* sha256("claude-person") },
-        ]);
-        const decodeLog = findIdentityLog(logs, "codex", "TelemetryIdentityDecodeError");
-        assert.equal(
-          decodeLog?.message,
-          `Failed to decode codex telemetry identity at '${codexAuthPath}'.`,
-        );
-        assert.equal(decodeLog?.annotations.causeKind, "schema");
-        assert.notInclude(
-          Object.values(decodeLog?.annotations ?? {})
-            .map(String)
-            .join("\n"),
-          privateAccessToken,
-        );
-      }).pipe(Effect.provide(layerIdentity("t3-telemetry-identify-decode-", logs)));
     },
   );
 });

@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -122,9 +121,6 @@ type TelemetryIdentityError =
   | TelemetryAnonymousIdGenerationError
   | TelemetryAnonymousIdPersistenceError;
 
-const decodeCodexAuthJson = Schema.decodeEffect(Schema.fromJsonString(CodexAuthJsonSchema));
-const decodeClaudeJson = Schema.decodeEffect(Schema.fromJsonString(ClaudeJsonSchema));
-
 function isNotFoundError(error: PlatformError.PlatformError): boolean {
   return error.reason._tag === "NotFound";
 }
@@ -188,34 +184,6 @@ export const openAiUserId = (idToken: string) => {
     : Option.none<string>();
 };
 
-const readJsonIdentityFile = Effect.fn("TelemetryIdentity.readJsonIdentityFile")(function* <A>(
-  source: "codex" | "claude",
-  filePath: string,
-  decode: (encoded: string) => Effect.Effect<A, Schema.SchemaError>,
-) {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const encoded = yield* readIdentityFile(fileSystem, source, filePath);
-  if (Option.isNone(encoded)) {
-    return Option.none<A>();
-  }
-  return yield* decode(encoded.value).pipe(
-    Effect.asSome,
-    Effect.mapError((cause) => new TelemetryIdentityDecodeError({ source, filePath, cause })),
-  );
-});
-
-// A missing or unreadable file only removes that owner; it never blocks the others.
-const skipOnError = <A, R>(
-  effect: Effect.Effect<
-    Option.Option<A>,
-    TelemetryIdentityReadError | TelemetryIdentityDecodeError,
-    R
-  >,
-) =>
-  effect.pipe(
-    Effect.catch((error) => logTelemetryIdentityError(error).pipe(Effect.as(Option.none<A>()))),
-  );
-
 const upsertAnonymousId = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const { anonymousIdPath } = yield* ServerConfig.ServerConfig;
@@ -250,25 +218,16 @@ const upsertAnonymousId = Effect.gen(function* () {
   return anonymousId;
 });
 
-const readProviderLogins = Effect.fn("TelemetryIdentity.readProviderLogins")(function* (
-  homeDirectory: string,
-) {
-  const path = yield* Path.Path;
-  const codexTokens = yield* readJsonIdentityFile(
-    "codex",
-    path.join(homeDirectory, ".codex", "auth.json"),
-    decodeCodexAuthJson,
-  ).pipe(
-    skipOnError,
-    Effect.map(Option.flatMap((authJson) => Option.fromUndefinedOr(authJson.tokens))),
-  );
-  const claudeJson = yield* readJsonIdentityFile(
-    "claude",
-    path.join(homeDirectory, ".claude.json"),
-    decodeClaudeJson,
-  ).pipe(skipOnError);
-  return { codexTokens, claudeJson };
-});
+/**
+ * Fork: never read other tools' credential files (`~/.codex/auth.json`, `~/.claude.json`) for
+ * telemetry. The identity falls back to this install's random anonymous id, and no provider
+ * accounts are reported as owners.
+ */
+const readProviderLogins = (_homeDirectory: string) =>
+  Effect.succeed({
+    codexTokens: Option.none<NonNullable<typeof CodexAuthJsonSchema.Type.tokens>>(),
+    claudeJson: Option.none<typeof ClaudeJsonSchema.Type>(),
+  });
 
 /**
  * `distinctId` preserves legacy priority: hashed Codex account_id, Claude userID, then anonymous id.

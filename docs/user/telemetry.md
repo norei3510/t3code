@@ -1,5 +1,11 @@
 # Product usage data
 
+> **Fork note (norei3510/t3code, branch `mine`):** product analytics and relay tracing are
+> **off by default** in this fork. They are sent only when `T3CODE_TELEMETRY_ENABLED=true`.
+> The server never reads `~/.codex/auth.json` or `~/.claude.json` for telemetry, so no OpenAI or
+> Claude account identifiers are sent even when telemetry is turned on. The rest of this page
+> describes upstream behavior.
+
 The T3 Code server sends product usage events to T3 Code's own endpoint at `ingest.t3.codes`,
 associated with a hashed account or installation identifier. To count how many installations one person
 uses, the server also sends hashed account identifiers: your T3 Connect account, your OpenAI and
